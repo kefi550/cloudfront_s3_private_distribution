@@ -1,14 +1,26 @@
-# Welcome to your CDK TypeScript project
+# private file distribution using cloudfront + s3
 
-This is a blank project for CDK development with TypeScript.
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+- create a key pair for cloudfront signing
 
-## Useful commands
+```sh
+# private key
+openssl genrsa -out private.pem 2048
 
-* `npm run build`   compile typescript to js
-* `npm run watch`   watch for changes and compile
-* `npm run test`    perform the jest unit tests
-* `cdk deploy`      deploy this stack to your default AWS account/region
-* `cdk diff`        compare deployed stack with current state
-* `cdk synth`       emits the synthesized CloudFormation template
+# public key
+openssl rsa -in private.pem -pubout --outform pem -out public.pem
+```
+
+- store the key pair to SSM parameter store
+  - private key as SecureStringParameter
+  - public key as StringParameter (for use from cdk)
+
+
+# deploy
+
+```
+npm ci
+npm run build
+npm run cdk diff
+npm run cdk deploy
+```

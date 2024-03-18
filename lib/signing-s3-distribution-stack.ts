@@ -73,7 +73,7 @@ export class SigningS3DistributionStack extends cdk.Stack {
       }
     });
 
-    // 自動で作成されるOAI設定を削除しOACを追加する
+    // remove OAI settings that are automatically created and add OAC
     const cfnDistribution = distribution.node.defaultChild as cloudfront.CfnDistribution;
     cfnDistribution.addPropertyOverride('DistributionConfig.Origins.0.S3OriginConfig.OriginAccessIdentity', '');
     cfnDistribution.addPropertyOverride('DistributionConfig.Origins.0.OriginAccessControlId', oac.getAtt('Id').toString());
