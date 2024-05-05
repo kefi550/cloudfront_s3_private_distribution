@@ -8,10 +8,17 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigwv2Integration from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as lambdaPython from '@aws-cdk/aws-lambda-python-alpha';
 
 export interface SigningS3DistibutionStackProps extends cdk.StackProps {
   bucketName: string;
   signingPublicKeySsmParameterName: string;
+  signingPrivateKeySsmParameterName: string;
+  authUsernameSsmParameterName: string;
+  authPasswordSsmParameterName: string;
   bucketRemovalPolicy?: cdk.RemovalPolicy;
   certificateArn?: string;
   distributionDomainName?: string;
@@ -102,6 +109,45 @@ export class SigningS3DistributionStack extends cdk.Stack {
         recordName: props.distributionDomainName,
       });
     }
+
+    const lambdaFunction = new lambdaPython.PythonFunction(this, 'LambdaFunction', {
+      runtime: lambda.Runtime.PYTHON_3_11,
+      handler: 'handler',
+      entry: 'lambda/python',
+      index: 'main.py',
+      bundling: {
+        assetExcludes: ['.venv'],
+      },
+      environment: {
+        BUCKET_NAME: props.bucketName,
+        CLOUDFRONT_SIGNING_PRIVATE_KEY_SSM_PARAMETER_NAME: props.signingPrivateKeySsmParameterName,
+        REGION: this.region,
+        CLOUDFRONT_DOMAIN_NAME: props.distributionDomainName || distribution.distributionDomainName,
+        CLOUDFRONT_SIGNING_PUBLIC_KEY_ID: cloudfrontPublicKey.publicKeyId,
+        AUTH_USERNAME_SSM_PARAMETER_NAME: props.authUsernameSsmParameterName,
+        AUTH_PASSWORD_SSM_PARAMETER_NAME: props.authPasswordSsmParameterName,
+      }
+    });
+    bucket.grantRead(lambdaFunction);
+
+    lambdaFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['cloudfront:GetPublicKey'],
+      effect: iam.Effect.ALLOW,
+      resources: ["*"],
+    }));
+    lambdaFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      effect: iam.Effect.ALLOW,
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter${props.signingPrivateKeySsmParameterName}`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter${props.authUsernameSsmParameterName}`,
+        `arn:aws:ssm:${this.region}:${this.account}:parameter${props.authPasswordSsmParameterName}`,
+      ],
+    }));
+
+    const api = new apigwv2.HttpApi(this, 'HttpApi', {
+      defaultIntegration: new apigwv2Integration.HttpLambdaIntegration('lambdaIntegration', lambdaFunction),
+    });
   }
 
   private checkIfUseCustomRecord(props: SigningS3DistibutionStackProps): boolean {
