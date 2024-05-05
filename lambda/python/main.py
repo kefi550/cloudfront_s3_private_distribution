@@ -62,7 +62,7 @@ def get_video():
     path = app.current_event.path
     s3_path = path.replace('/objects/', '')
     video_stream_template = """
-        <video controls>
+        <video controls autoplay>
             <source src={{ video_url }}>
         </video>
     """
