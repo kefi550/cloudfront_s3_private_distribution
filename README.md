@@ -1,6 +1,9 @@
-# private file distribution using cloudfront + s3
+# private s3 media distributor
 
+## Overview
+A secure delivery system for files stored in a private S3 bucket, accessible through an authentication-required page.
 
+## Preparation
 - create a key pair for cloudfront signing
 
 ```sh
