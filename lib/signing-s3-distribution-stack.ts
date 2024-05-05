@@ -20,10 +20,12 @@ export interface SigningS3DistibutionStackProps extends cdk.StackProps {
   authUsernameSsmParameterName: string;
   authPasswordSsmParameterName: string;
   bucketRemovalPolicy?: cdk.RemovalPolicy;
-  certificateArn?: string;
-  distributionDomainName?: string;
-  route53HostedZoneId?: string;
-  route53HostedZoneName?: string;
+  cloudfrontCertificateArn: string;
+  apigatewayCertificateArn: string;
+  distributionDomainName: string;
+  websiteDomainName: string;
+  route53HostedZoneId: string;
+  route53HostedZoneName: string;
   enableS3Logging?: boolean;
   enableCloudfrontLogging?: boolean;
 }
@@ -32,13 +34,8 @@ export class SigningS3DistributionStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: SigningS3DistibutionStackProps) {
     super(scope, id, props);
 
-    const useCustomRecord = this.checkIfUseCustomRecord(props);
-
-    let certificate, domainNames;
-    if (useCustomRecord && props.certificateArn && props.distributionDomainName) {
-      certificate = acm.Certificate.fromCertificateArn(this, 'Certificate', props.certificateArn);
-      domainNames = [props.distributionDomainName];
-    }
+    const cloudfrontCertificate = acm.Certificate.fromCertificateArn(this, 'Certificate', props.cloudfrontCertificateArn);
+    const domainNames = [props.distributionDomainName];
 
     const bucket = new s3.Bucket(this, 'Bucket', {
       removalPolicy: props.bucketRemovalPolicy,
@@ -65,7 +62,7 @@ export class SigningS3DistributionStack extends cdk.Stack {
         compress: true,
       },
       domainNames,
-      certificate,
+      certificate: cloudfrontCertificate,
       enableLogging: props.enableCloudfrontLogging ? true : false,
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
     });
@@ -98,17 +95,16 @@ export class SigningS3DistributionStack extends cdk.Stack {
     });
     bucket.addToResourcePolicy(bucketPolicyForOAC);
 
-    if ( useCustomRecord && props.route53HostedZoneId && props.route53HostedZoneName ) {
-      const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
-        hostedZoneId: props.route53HostedZoneId,
-        zoneName: props.route53HostedZoneName,
-      });
-      new route53.ARecord(this, 'Record', {
-        zone: hostedZone,
-        target: route53.RecordTarget.fromAlias(new route53Targets.CloudFrontTarget(distribution)),
-        recordName: props.distributionDomainName,
-      });
-    }
+    const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
+      hostedZoneId: props.route53HostedZoneId,
+      zoneName: props.route53HostedZoneName,
+    });
+
+    new route53.ARecord(this, 'DistributionRecord', {
+      zone: hostedZone,
+      target: route53.RecordTarget.fromAlias(new route53Targets.CloudFrontTarget(distribution)),
+      recordName: props.distributionDomainName,
+    });
 
     const lambdaFunction = new lambdaPython.PythonFunction(this, 'LambdaFunction', {
       runtime: lambda.Runtime.PYTHON_3_11,
@@ -145,17 +141,27 @@ export class SigningS3DistributionStack extends cdk.Stack {
       ],
     }));
 
+    const apigatewayCertificate = acm.Certificate.fromCertificateArn(this, 'ApiGatewayCertificate', props.apigatewayCertificateArn);
+    const apiDomainName = new apigwv2.DomainName(this, 'HttpApiDomainName', {
+      domainName: props.websiteDomainName,
+      certificate: apigatewayCertificate,
+    });
     const api = new apigwv2.HttpApi(this, 'HttpApi', {
       defaultIntegration: new apigwv2Integration.HttpLambdaIntegration('lambdaIntegration', lambdaFunction),
+      defaultDomainMapping: {
+        domainName: apiDomainName,
+      }
+    });
+    const apiRecordTarget = route53.RecordTarget.fromAlias(
+      new route53Targets.ApiGatewayv2DomainProperties(
+        apiDomainName.regionalDomainName,
+        apiDomainName.regionalHostedZoneId
+      )
+    );
+    const apiRecord = new route53.ARecord(this, 'ApiRecord', {
+      zone: hostedZone,
+      target: apiRecordTarget,
+      recordName: props.websiteDomainName,
     });
   }
-
-  private checkIfUseCustomRecord(props: SigningS3DistibutionStackProps): boolean {
-    if (props.certificateArn && props.distributionDomainName && props.route53HostedZoneId && props.route53HostedZoneName) {
-      return true;
-    } else if (props.certificateArn || props.distributionDomainName || props.route53HostedZoneId || props.route53HostedZoneName) {
-      console.log('Warning: When setting an alternate domain name on a CloudFront distribution, all parameters certificateArn, distributionDomainName, route53HostedZoneId, and route53HostedZoneName must be specified.');
-    }
-    return false;
-  } 
 }
