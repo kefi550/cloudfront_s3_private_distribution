@@ -62,9 +62,22 @@ def get_video():
     path = app.current_event.path
     s3_path = path.replace('/objects/', '')
     video_stream_template = """
-        <video controls autoplay>
-            <source src={{ video_url }}>
-        </video>
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                video {
+                    width: 100%;
+                    height: auto;
+                }
+            </style>
+        </head>
+        <body>
+            <video controls autoplay>
+                <source src={{ video_url }}>
+            </video>
+        </body>
+        </html>
     """
     video_url = sign_url(s3_path)
     html = Template(video_stream_template, autoescape=True).render(video_url=video_url)
